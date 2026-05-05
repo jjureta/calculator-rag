@@ -49,3 +49,29 @@ def test_search_returns_empty_list_when_no_results():
         result = server.search("obscure question")
 
     assert result == []
+
+
+def test_search_calculators_no_results():
+    with patch("server.search", return_value=[]):
+        result = server.search_calculators("unknown question")
+    assert "No relevant content" in result
+
+
+def test_search_calculators_formats_chunks():
+    chunks = [
+        {"source": "HP-41C.pdf", "text": "FOR loop syntax is GTO", "score": 0.91},
+        {"source": "HP-41C.pdf", "text": "examples of loops", "score": 0.80},
+    ]
+    with patch("server.search", return_value=chunks):
+        result = server.search_calculators("FOR loop")
+    assert "HP-41C.pdf" in result
+    assert "FOR loop syntax is GTO" in result
+    assert "---" in result
+    assert "0.910" in result
+
+
+def test_search_calculators_handles_exception():
+    with patch("server.search", side_effect=Exception("Qdrant unreachable")):
+        result = server.search_calculators("any question")
+    assert "Error" in result
+    assert "Qdrant unreachable" in result

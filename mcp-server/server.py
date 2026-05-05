@@ -40,7 +40,18 @@ def search(question: str) -> list[dict]:
 @mcp.tool()
 def search_calculators(question: str) -> str:
     """Search vintage calculator manuals and return relevant excerpts."""
-    raise NotImplementedError
+    try:
+        chunks = search(question)
+    except Exception as e:
+        return f"Error: {e}"
+
+    if not chunks:
+        return "No relevant content found in the calculator manuals."
+
+    return "\n\n---\n\n".join(
+        f"Source: {c['source']} (score: {c['score']:.3f})\n{c['text']}"
+        for c in chunks
+    )
 
 
 if __name__ == "__main__":
