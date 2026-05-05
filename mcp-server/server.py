@@ -24,7 +24,17 @@ def embed(text: str) -> list[float]:
 
 
 def search(question: str) -> list[dict]:
-    raise NotImplementedError
+    qc = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+    vector = embed(question)
+    results = qc.search(
+        collection_name=COLLECTION,
+        query_vector=vector,
+        limit=TOP_K,
+    )
+    return [
+        {"source": r.payload["source"], "text": r.payload["text"], "score": r.score}
+        for r in results
+    ]
 
 
 @mcp.tool()
