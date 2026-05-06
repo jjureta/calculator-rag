@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "calculator-rag": {
-      "command": "python",
+      "command": "/home/jjureta/miniconda3/bin/python",
       "args": ["/home/jjureta/Projects/calculator-rag/mcp-server/server.py"],
       "env": {
         "QDRANT_HOST": "localhost",

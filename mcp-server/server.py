@@ -26,11 +26,11 @@ def embed(text: str) -> list[float]:
 def search(question: str) -> list[dict]:
     qc = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
     vector = embed(question)
-    results = qc.search(
+    results = qc.query_points(
         collection_name=COLLECTION,
-        query_vector=vector,
+        query=vector,
         limit=TOP_K,
-    )
+    ).points
     return [
         {"source": r.payload["source"], "text": r.payload["text"], "score": r.score}
         for r in results
@@ -54,5 +54,37 @@ def search_calculators(question: str) -> str:
     )
 
 
+def _filter_stdin_empty_lines() -> None:
+    # Claude Code sends bare '\n' keepalives over stdio; the MCP library
+    # can't parse them as JSON and aborts the connection. Filter them out
+    # at the raw stream level before FastMCP reads stdin.
+    import io
+    import sys
+
+    class _FilteredRaw(io.RawIOBase):
+        def __init__(self, raw: io.RawIOBase) -> None:
+            self._raw = raw
+            self._pending = b""
+
+        def readable(self) -> bool:
+            return True
+
+        def readinto(self, b: bytearray) -> int:
+            while not self._pending:
+                line = self._raw.readline()
+                if not line:
+                    return 0
+                if line.strip():
+                    self._pending = line
+            n = min(len(self._pending), len(b))
+            b[:n] = self._pending[:n]
+            self._pending = self._pending[n:]
+            return n
+
+    filtered = io.BufferedReader(_FilteredRaw(sys.stdin.buffer.raw))
+    sys.stdin = io.TextIOWrapper(filtered, encoding="utf-8")
+
+
 if __name__ == "__main__":
+    _filter_stdin_empty_lines()
     mcp.run()
