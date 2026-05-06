@@ -58,3 +58,88 @@ def test_delete_source_points_calls_qdrant_delete():
     assert isinstance(selector, FilterSelector)
     assert selector.filter.must[0].key == "source"
     assert selector.filter.must[0].match.value == "foo.pdf"
+
+
+def _make_pdf(tmp_path: Path, name: str, content: bytes = b"data") -> Path:
+    p = tmp_path / name
+    p.write_bytes(content)
+    return p
+
+
+def test_main_skips_unchanged_pdf(tmp_path, monkeypatch):
+    _make_pdf(tmp_path, "calc.pdf", b"unchanged")
+    sha = hashlib.sha256(b"unchanged").hexdigest()
+    manifest_file = tmp_path / "ingested.json"
+    manifest_file.write_text(json.dumps({"calc.pdf": sha}))
+    monkeypatch.setattr(ingest, "PDF_DIR", tmp_path)
+    monkeypatch.setattr(ingest, "MANIFEST_PATH", manifest_file)
+    monkeypatch.setattr(ingest, "COLLECTION", "test_col")
+
+    qc = MagicMock()
+    qc.collection_exists.return_value = True
+    with patch("ingest.QdrantClient", return_value=qc), \
+         patch("ingest.embed") as mock_embed:
+        ingest.main()
+
+    mock_embed.assert_not_called()
+    qc.upsert.assert_not_called()
+
+
+def test_main_ingests_new_pdf(tmp_path, monkeypatch):
+    _make_pdf(tmp_path, "new.pdf", b"new content")
+    manifest_file = tmp_path / "ingested.json"
+    manifest_file.write_text("{}")
+    monkeypatch.setattr(ingest, "PDF_DIR", tmp_path)
+    monkeypatch.setattr(ingest, "MANIFEST_PATH", manifest_file)
+    monkeypatch.setattr(ingest, "COLLECTION", "test_col")
+
+    qc = MagicMock()
+    qc.collection_exists.return_value = True
+    with patch("ingest.QdrantClient", return_value=qc), \
+         patch("ingest.embed", return_value=[0.1] * 768), \
+         patch("ingest.extract_text", return_value="word " * 120):
+        ingest.main()
+
+    qc.upsert.assert_called()
+    saved = json.loads(manifest_file.read_text())
+    assert "new.pdf" in saved
+
+
+def test_main_reprocesses_changed_pdf(tmp_path, monkeypatch):
+    _make_pdf(tmp_path, "changed.pdf", b"new bytes")
+    manifest_file = tmp_path / "ingested.json"
+    manifest_file.write_text(json.dumps({"changed.pdf": "old_stale_hash"}))
+    monkeypatch.setattr(ingest, "PDF_DIR", tmp_path)
+    monkeypatch.setattr(ingest, "MANIFEST_PATH", manifest_file)
+    monkeypatch.setattr(ingest, "COLLECTION", "test_col")
+
+    qc = MagicMock()
+    qc.collection_exists.return_value = True
+    with patch("ingest.QdrantClient", return_value=qc), \
+         patch("ingest.embed", return_value=[0.1] * 768), \
+         patch("ingest.extract_text", return_value="word " * 120):
+        ingest.main()
+
+    qc.delete.assert_called()
+    qc.upsert.assert_called()
+    saved = json.loads(manifest_file.read_text())
+    assert saved["changed.pdf"] != "old_stale_hash"
+
+
+def test_main_removes_deleted_pdf_from_index(tmp_path, monkeypatch):
+    manifest_file = tmp_path / "ingested.json"
+    manifest_file.write_text(json.dumps({"gone.pdf": "some_hash"}))
+    monkeypatch.setattr(ingest, "PDF_DIR", tmp_path)
+    monkeypatch.setattr(ingest, "MANIFEST_PATH", manifest_file)
+    monkeypatch.setattr(ingest, "COLLECTION", "test_col")
+
+    qc = MagicMock()
+    qc.collection_exists.return_value = True
+    with patch("ingest.QdrantClient", return_value=qc), \
+         patch("ingest.embed") as mock_embed:
+        ingest.main()
+
+    qc.delete.assert_called()
+    mock_embed.assert_not_called()
+    saved = json.loads(manifest_file.read_text())
+    assert "gone.pdf" not in saved

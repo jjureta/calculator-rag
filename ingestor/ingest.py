@@ -93,21 +93,40 @@ def delete_source_points(qc: QdrantClient, collection: str, source: str) -> None
 def main():
     qc = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
-    # Recreate collection (wipe + re-index on every run)
-    qc.recreate_collection(
-        collection_name=COLLECTION,
-        vectors_config=VectorParams(size=VECTOR_DIM, distance=Distance.COSINE),
-    )
+    if not qc.collection_exists(COLLECTION):
+        qc.create_collection(
+            collection_name=COLLECTION,
+            vectors_config=VectorParams(size=VECTOR_DIM, distance=Distance.COSINE),
+        )
     print(f"Collection '{COLLECTION}' ready.")
 
-    pdfs = sorted(PDF_DIR.rglob("*.pdf"))
+    manifest = load_manifest()
+    pdfs = {p.name: p for p in sorted(PDF_DIR.rglob("*.pdf"))}
+
+    for name in list(manifest):
+        if name not in pdfs:
+            print(f"  - {name} removed — deleting from index.")
+            delete_source_points(qc, COLLECTION, name)
+            del manifest[name]
+
     if not pdfs:
         print(f"No PDFs found in {PDF_DIR}. Mount your manuals and re-run.")
+        save_manifest(manifest)
         return
 
     points: list[PointStruct] = []
-    for pdf_path in pdfs:
-        print(f"  → {pdf_path.name}", end=" ", flush=True)
+    for name, pdf_path in pdfs.items():
+        current_hash = file_sha256(pdf_path)
+        if manifest.get(name) == current_hash:
+            print(f"  = {name} unchanged — skipping.")
+            continue
+
+        if name in manifest:
+            print(f"  ~ {name} changed — re-indexing.", end=" ", flush=True)
+            delete_source_points(qc, COLLECTION, name)
+        else:
+            print(f"  + {name} new — indexing.", end=" ", flush=True)
+
         text = extract_text(pdf_path)
         chunks = [c for c in chunk_text(text) if len(c.strip()) >= 50]
         for chunk in chunks:
@@ -116,17 +135,18 @@ def main():
                 PointStruct(
                     id=str(uuid.uuid4()),
                     vector=vector,
-                    payload={"text": chunk, "source": pdf_path.name},
+                    payload={"text": chunk, "source": name},
                 )
             )
+        manifest[name] = current_hash
         print(f"({len(chunks)} chunks)")
 
-    # Upsert in batches of 256
     batch_size = 256
     for i in range(0, len(points), batch_size):
         qc.upsert(collection_name=COLLECTION, points=points[i : i + batch_size])
 
-    print(f"\nDone. {len(points)} chunks indexed from {len(pdfs)} manuals.")
+    save_manifest(manifest)
+    print(f"\nDone. {len(points)} new chunks indexed.")
 
 
 if __name__ == "__main__":
