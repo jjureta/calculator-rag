@@ -1,7 +1,7 @@
 """
 ingest.py — chunk PDFs, embed via Ollama, store in Qdrant.
 Run automatically by the 'ingestor' Docker service.
-Re-running is safe: existing collections are recreated.
+Re-running is safe: only new or changed PDFs are processed.
 """
 
 import hashlib

@@ -102,7 +102,8 @@ def test_main_ingests_new_pdf(tmp_path, monkeypatch):
 
     qc.upsert.assert_called()
     saved = json.loads(manifest_file.read_text())
-    assert "new.pdf" in saved
+    expected_hash = hashlib.sha256(b"new content").hexdigest()
+    assert saved.get("new.pdf") == expected_hash
 
 
 def test_main_reprocesses_changed_pdf(tmp_path, monkeypatch):
@@ -123,7 +124,8 @@ def test_main_reprocesses_changed_pdf(tmp_path, monkeypatch):
     qc.delete.assert_called()
     qc.upsert.assert_called()
     saved = json.loads(manifest_file.read_text())
-    assert saved["changed.pdf"] != "old_stale_hash"
+    expected_hash = hashlib.sha256(b"new bytes").hexdigest()
+    assert saved.get("changed.pdf") == expected_hash
 
 
 def test_main_removes_deleted_pdf_from_index(tmp_path, monkeypatch):
@@ -143,3 +145,20 @@ def test_main_removes_deleted_pdf_from_index(tmp_path, monkeypatch):
     mock_embed.assert_not_called()
     saved = json.loads(manifest_file.read_text())
     assert "gone.pdf" not in saved
+
+
+def test_main_creates_collection_when_missing(tmp_path, monkeypatch):
+    manifest_file = tmp_path / "ingested.json"
+    manifest_file.write_text("{}")
+    monkeypatch.setattr(ingest, "PDF_DIR", tmp_path)
+    monkeypatch.setattr(ingest, "MANIFEST_PATH", manifest_file)
+    monkeypatch.setattr(ingest, "COLLECTION", "test_col")
+
+    qc = MagicMock()
+    qc.collection_exists.return_value = False
+    with patch("ingest.QdrantClient", return_value=qc):
+        ingest.main()
+
+    qc.create_collection.assert_called_once()
+    call_kwargs = qc.create_collection.call_args.kwargs
+    assert call_kwargs["collection_name"] == "test_col"
