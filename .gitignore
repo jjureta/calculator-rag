@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Environment (never commit API keys!)
+.env
+
+# Docker volumes / data
+qdrant_storage/
+ollama_models/
+
+# VS Code
+.vscode/
+
+# PDFs (too large for git)
+pdfs/
