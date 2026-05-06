@@ -55,13 +55,19 @@ def extract_text(pdf_path: Path) -> str:
 
 
 def load_manifest() -> dict[str, str]:
-    if MANIFEST_PATH.exists():
+    if not MANIFEST_PATH.exists():
+        return {}
+    try:
         return json.loads(MANIFEST_PATH.read_text())
-    return {}
+    except json.JSONDecodeError:
+        print(f"Warning: corrupt manifest at {MANIFEST_PATH}, starting fresh.")
+        return {}
 
 
 def save_manifest(manifest: dict[str, str]) -> None:
-    MANIFEST_PATH.write_text(json.dumps(manifest, indent=2))
+    tmp = MANIFEST_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(manifest, indent=2))
+    tmp.replace(MANIFEST_PATH)
 
 
 def file_sha256(path: Path) -> str:
