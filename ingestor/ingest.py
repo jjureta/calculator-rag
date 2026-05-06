@@ -4,6 +4,8 @@ Run automatically by the 'ingestor' Docker service.
 Re-running is safe: existing collections are recreated.
 """
 
+import hashlib
+import json
 import os
 import uuid
 from pathlib import Path
@@ -22,6 +24,7 @@ COLLECTION   = os.getenv("COLLECTION", "calculator_manuals")
 CHUNK_SIZE   = int(os.getenv("CHUNK_SIZE", 500))
 EMBED_MODEL  = "nomic-embed-text"
 VECTOR_DIM   = 768  # nomic-embed-text output dimension
+MANIFEST_PATH = Path(os.getenv("MANIFEST_PATH", "/app/ingested.json"))
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -49,6 +52,20 @@ def extract_text(pdf_path: Path) -> str:
     with pdfplumber.open(pdf_path) as pdf:
         pages = [p.extract_text() or "" for p in pdf.pages]
     return "\n".join(pages)
+
+
+def load_manifest() -> dict[str, str]:
+    if MANIFEST_PATH.exists():
+        return json.loads(MANIFEST_PATH.read_text())
+    return {}
+
+
+def save_manifest(manifest: dict[str, str]) -> None:
+    MANIFEST_PATH.write_text(json.dumps(manifest, indent=2))
+
+
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 # ── Main ─────────────────────────────────────────────────────────────
