@@ -45,3 +45,16 @@ def test_load_manifest_returns_empty_on_corrupt_file(tmp_path, monkeypatch):
     manifest_file.write_text("not valid json{{{")
     monkeypatch.setattr(ingest, "MANIFEST_PATH", manifest_file)
     assert ingest.load_manifest() == {}
+
+
+def test_delete_source_points_calls_qdrant_delete():
+    from qdrant_client.models import FilterSelector, Filter, FieldCondition, MatchValue
+    qc = MagicMock()
+    ingest.delete_source_points(qc, "my_col", "foo.pdf")
+    qc.delete.assert_called_once()
+    kwargs = qc.delete.call_args.kwargs
+    assert kwargs["collection_name"] == "my_col"
+    selector = kwargs["points_selector"]
+    assert isinstance(selector, FilterSelector)
+    assert selector.filter.must[0].key == "source"
+    assert selector.filter.must[0].match.value == "foo.pdf"

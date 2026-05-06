@@ -13,7 +13,10 @@ from pathlib import Path
 import pdfplumber
 import requests
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import (
+    Distance, VectorParams, PointStruct,
+    Filter, FieldCondition, MatchValue, FilterSelector,
+)
 
 # ── Config from environment ──────────────────────────────────────────
 QDRANT_HOST  = os.getenv("QDRANT_HOST", "localhost")
@@ -72,6 +75,17 @@ def save_manifest(manifest: dict[str, str]) -> None:
 
 def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def delete_source_points(qc: QdrantClient, collection: str, source: str) -> None:
+    qc.delete(
+        collection_name=collection,
+        points_selector=FilterSelector(
+            filter=Filter(
+                must=[FieldCondition(key="source", match=MatchValue(value=source))]
+            )
+        ),
+    )
 
 
 # ── Main ─────────────────────────────────────────────────────────────
