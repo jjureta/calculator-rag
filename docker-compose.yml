@@ -46,7 +46,7 @@ services:
       - CHUNK_SIZE=500
     command: >
       sh -c "
-        pip install --quiet pdfplumber qdrant-client requests &&
+        pip install --quiet -r requirements.txt &&
         python ingest.py
       "
     restart: "no"
