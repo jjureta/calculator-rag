@@ -68,6 +68,7 @@ def load_manifest() -> dict[str, str]:
 
 
 def save_manifest(manifest: dict[str, str]) -> None:
+    MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = MANIFEST_PATH.with_suffix(".tmp")
     tmp.write_text(json.dumps(manifest, indent=2))
     tmp.replace(MANIFEST_PATH)
@@ -97,6 +98,11 @@ def main():
         qc.create_collection(
             collection_name=COLLECTION,
             vectors_config=VectorParams(size=VECTOR_DIM, distance=Distance.COSINE),
+        )
+        qc.create_payload_index(
+            collection_name=COLLECTION,
+            field_name="source",
+            field_schema="keyword",
         )
     print(f"Collection '{COLLECTION}' ready.")
 
@@ -129,6 +135,9 @@ def main():
 
         text = extract_text(pdf_path)
         chunks = [c for c in chunk_text(text) if len(c.strip()) >= 50]
+        if not chunks:
+            print(f"warning: {name} produced no text chunks — skipping.")
+            continue
         for chunk in chunks:
             vector = embed(chunk)
             points.append(

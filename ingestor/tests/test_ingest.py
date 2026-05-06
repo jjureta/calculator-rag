@@ -162,3 +162,40 @@ def test_main_creates_collection_when_missing(tmp_path, monkeypatch):
     qc.create_collection.assert_called_once()
     call_kwargs = qc.create_collection.call_args.kwargs
     assert call_kwargs["collection_name"] == "test_col"
+    qc.create_payload_index.assert_called_once()
+
+
+def test_main_skips_empty_text_pdf(tmp_path, monkeypatch):
+    _make_pdf(tmp_path, "image_only.pdf", b"fake pdf bytes")
+    manifest_file = tmp_path / "ingested.json"
+    manifest_file.write_text("{}")
+    monkeypatch.setattr(ingest, "PDF_DIR", tmp_path)
+    monkeypatch.setattr(ingest, "MANIFEST_PATH", manifest_file)
+    monkeypatch.setattr(ingest, "COLLECTION", "test_col")
+
+    qc = MagicMock()
+    qc.collection_exists.return_value = True
+    with patch("ingest.QdrantClient", return_value=qc), \
+         patch("ingest.embed") as mock_embed, \
+         patch("ingest.extract_text", return_value=""):
+        ingest.main()
+
+    mock_embed.assert_not_called()
+    qc.upsert.assert_not_called()
+    saved = json.loads(manifest_file.read_text())
+    assert "image_only.pdf" not in saved
+
+
+def test_main_does_not_create_collection_when_exists(tmp_path, monkeypatch):
+    manifest_file = tmp_path / "ingested.json"
+    manifest_file.write_text("{}")
+    monkeypatch.setattr(ingest, "PDF_DIR", tmp_path)
+    monkeypatch.setattr(ingest, "MANIFEST_PATH", manifest_file)
+    monkeypatch.setattr(ingest, "COLLECTION", "test_col")
+
+    qc = MagicMock()
+    qc.collection_exists.return_value = True
+    with patch("ingest.QdrantClient", return_value=qc):
+        ingest.main()
+
+    qc.create_collection.assert_not_called()
