@@ -1,0 +1,248 @@
+; ============================================================
+; HP-42S Function Plotter — MCP-assisted version
+; Source: hp42s-prog-en.pdf PLOT program (via calculator-rag)
+;
+; The structure follows the HP-42S manual's PLOT program:
+;   - Named variables for range (XMIN, XMAX, YMIN, YMAX)
+;   - Axis drawing subroutines (XAXIS, YAXIS) with flag control
+;   - 16 display rows × 131 display columns (per manual)
+;   - PIXEL: Y-register = row (1=top), X-register = col (1=left)
+;
+; SETUP (run these before XEQ "MGRAPH"):
+;   <value>  STO "XMIN"     left  x boundary (e.g. -3.14)
+;   <value>  STO "XMAX"     right x boundary (e.g.  3.14)
+;   <value>  STO "YMIN"     bottom y boundary (e.g. -1.5)
+;   <value>  STO "YMAX"     top    y boundary (e.g.  1.5)
+;   SF 00                   set to suppress x-axis line
+;   SF 01                   set to suppress y-axis line
+;
+; Define your function by editing LBL "F" (default: sin(x)).
+; Input to F:  x is in both X-register and variable "X".
+; Output of F: f(x) must be left in the X-register.
+;
+; Registers used internally: R10–R15.
+; ============================================================
+
+LBL "MGRAPH"
+
+; --- Precompute and store scale factors ---
+
+RCL "XMAX"
+RCL "XMIN"
+-
+130
+÷
+STO 10               ; R10 = x_step = (XMAX-XMIN)/130
+
+RCL "YMAX"
+RCL "YMIN"
+-
+STO 11               ; R11 = y_range = YMAX-YMIN
+
+; --- Clear display text ---
+CLCLA
+
+; --- Draw coordinate axes (manual §PLOT structure) ---
+; Flag 00 SET → suppress x-axis; CLEAR → draw it
+FS? 00               ; if flag 00 is SET, skip XEQ "XAXIS"
+XEQ "XAXIS"
+
+; Flag 01 SET → suppress y-axis; CLEAR → draw it
+FS? 01               ; if flag 01 is SET, skip XEQ "YAXIS"
+XEQ "YAXIS"
+
+; --- Main plot loop: iterate over 131 pixel columns ---
+1
+STO 12               ; R12 = column counter (1..131)
+
+LBL 00               ; ===== column loop =====
+
+; x = XMIN + (col - 1) * x_step
+RCL 12
+1
+-                    ; col - 1
+RCL 10
+×                    ; (col-1) * x_step
+RCL "XMIN"
++                    ; x value
+STO "X"              ; expose x via named var for user function
+
+; y = f(x)
+XEQ "F"              ; result returned in X-register
+
+; Convert y → pixel row
+; row = 16 - IP( (y-YMIN)/y_range * 15 + 0.5 )
+; row 1 = top of display (y = YMAX)
+; row 16 = bottom of display (y = YMIN)
+RCL "YMIN"
+-                    ; y - YMIN  (Y-X: y was in Y after RCL "YMIN")
+RCL 11               ; y_range
+÷                    ; (y-YMIN)/y_range  → 0..1 when in range
+15
+×                    ; scale to 0..15
+.5
++                    ; bias for nearest-integer rounding
+IP                   ; truncate to integer
+CHS
+16
++                    ; row = 16 - floor(...)
+STO 13               ; R13 = row
+
+; --- Bounds check: skip PIXEL if row outside [1, 16] ---
+
+; Gate 1: row >= 1
+1
+RCL 13               ; stack: Y=1, X=row
+X<Y?                 ; row < 1 ?  (TRUE → skip next)
+GTO 01               ; FALSE: row >= 1, proceed to gate 2
+GTO 02               ; TRUE:  row < 1,  skip pixel
+
+LBL 01
+; Gate 2: row <= 16
+16
+RCL 13               ; stack: Y=16, X=row
+X>Y?                 ; row > 16 ?  (TRUE → skip next)
+GTO 03               ; FALSE: row <= 16, draw pixel
+GTO 02               ; TRUE:  row > 16, skip pixel
+
+LBL 03               ; 1 ≤ row ≤ 16 → SET PIXEL
+RCL 13               ; row  (will become Y after next push)
+RCL 12               ; col  (X-register); row now in Y
+PIXEL                ; illuminate pixel at (row, col)
+
+LBL 02               ; ← both skip targets land here
+
+; Advance column; exit when col exceeds 131
+1
+STO+ 12
+RCL 12               ; X = new col
+131                  ; Y = new_col, X = 131
+X<Y?                 ; 131 < new_col ?  (i.e. new_col > 131 ?)
+GTO 00               ; FALSE: still in range, loop
+                     ; TRUE:  beyond range, fall through
+
+RTN                  ; ===== done =====
+
+; ============================================================
+; SUBROUTINE: XAXIS — horizontal axis line at y = 0
+; ============================================================
+LBL "XAXIS"
+
+; Guard: return if 0 is below YMIN
+RCL "YMIN"
+X>0?                 ; YMIN > 0 ?  (TRUE → skip GTO 04, reaching RTN)
+GTO 04
+RTN
+
+LBL 04
+; Guard: return if 0 is above YMAX
+RCL "YMAX"
+X<0?                 ; YMAX < 0 ?  (TRUE → skip GTO 05, reaching RTN)
+GTO 05
+RTN
+
+LBL 05
+; Compute the display row corresponding to y = 0
+0
+RCL "YMIN"
+-                    ; -YMIN
+RCL 11
+÷                    ; (-YMIN)/y_range
+15
+×
+.5
++
+IP
+CHS
+16
++
+STO 14               ; R14 = axis row
+
+; Draw horizontal pixel line across all 131 columns
+1
+STO 15               ; R15 = col counter
+
+LBL 06
+RCL 14               ; row
+RCL 15               ; col
+PIXEL
+1
+STO+ 15
+RCL 15               ; new col
+131
+X<Y?                 ; 131 < new_col ?
+GTO 06
+RTN
+
+; ============================================================
+; SUBROUTINE: YAXIS — vertical axis line at x = 0
+; ============================================================
+LBL "YAXIS"
+
+; Guard: return if 0 is left of XMIN
+RCL "XMIN"
+X>0?                 ; XMIN > 0 ?
+GTO 07
+RTN
+
+LBL 07
+; Guard: return if 0 is right of XMAX
+RCL "XMAX"
+X<0?                 ; XMAX < 0 ?
+GTO 08
+RTN
+
+LBL 08
+; col of x=0: col = 1 + IP( (0-XMIN)/x_step + 0.5 )
+0
+RCL "XMIN"
+-                    ; -XMIN
+RCL 10               ; x_step
+÷                    ; (-XMIN)/x_step = column offset
+.5
++
+IP
+1
++                    ; add 1 for 1-based column
+STO 14               ; R14 = axis column
+
+; Bounds-check axis column
+1
+RCL 14               ; Y=1, X=col
+X<Y?                 ; col < 1 ?
+GTO 09
+RTN
+
+LBL 09
+131
+RCL 14               ; Y=131, X=col
+X>Y?                 ; col > 131 ?
+GTO 10
+RTN
+
+LBL 10
+; Draw vertical pixel line across all 16 rows
+1
+STO 15               ; R15 = row counter
+
+LBL 11
+RCL 15               ; row
+RCL 14               ; col
+PIXEL
+1
+STO+ 15
+RCL 15               ; new row
+16
+X<Y?                 ; 16 < new_row ?
+GTO 11
+RTN
+
+; ============================================================
+; USER FUNCTION — edit this to define f(x)
+; Input:  X-register = x value (also available as RCL "X")
+; Output: X-register = f(x)
+; ============================================================
+LBL "F"
+; Default: f(x) = sin(x)
+SIN
+RTN

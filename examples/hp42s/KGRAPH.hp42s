@@ -1,0 +1,120 @@
+; ============================================================
+; HP-42S Function Plotter — knowledge-based version
+; Written from general HP-42S programming knowledge,
+; WITHOUT consulting the calculator-rag MCP.
+;
+; Simpler, standalone implementation:
+;   - Range stored in numbered registers R00–R03
+;   - No axis drawing (pure function trace)
+;   - No flag control
+;   - 131 columns × 16 rows as documented in the HP-42S display spec
+;
+; SETUP (run these before XEQ "KGRAPH"):
+;   <Xmin> STO 00
+;   <Xmax> STO 01
+;   <Ymin> STO 02
+;   <Ymax> STO 03
+;
+; Define your function by editing LBL "F" (default: sin(x)).
+; Input to F:  x is in the X-register.
+; Output of F: f(x) must be left in the X-register.
+;
+; Registers used internally: R04–R07.
+; ============================================================
+
+LBL "KGRAPH"
+
+; Precompute step and range once, outside the loop
+RCL 01
+RCL 00
+-
+130
+÷
+STO 04               ; R04 = x_step = (Xmax-Xmin)/130
+
+RCL 03
+RCL 02
+-
+STO 05               ; R05 = y_range = Ymax-Ymin
+
+CLCLA                ; clear display text
+
+; Column loop: col = 1 .. 131
+1
+STO 06               ; R06 = column counter
+
+LBL 00               ; ===== main loop =====
+
+; Compute x = Xmin + (col-1) * x_step
+RCL 06
+1
+-
+RCL 04
+×
+RCL 00
++                    ; x on stack (X-register)
+
+; Evaluate f(x) — result must be returned in X-register
+XEQ "F"
+
+; Convert y → display row
+; row = 16 - IP( (y-Ymin)/y_range * 15 + 0.5 )
+; row 1 = top (y = Ymax), row 16 = bottom (y = Ymin)
+RCL 02
+-                    ; y - Ymin  (HP RPN: Y-X, so result = y - Ymin)
+RCL 05
+÷                    ; normalised: (y-Ymin)/y_range
+15
+×                    ; scale: 0..15
+.5
++                    ; bias for rounding
+IP                   ; integer part (truncates toward zero)
+CHS
+16
++                    ; row in X-register
+STO 07               ; R07 = row  ← save before bounds check corrupts the stack
+
+; --- Bounds check: skip PIXEL if row outside [1, 16] ---
+
+; Lower bound: skip pixel if row < 1
+1
+RCL 07               ; stack: Y=1, X=row   ← correct operand order
+X<Y?                 ; is row < 1 ?  (TRUE → skip next)
+GTO 01               ; FALSE: row >= 1, check upper bound
+GTO 02               ; TRUE:  row < 1,  skip pixel
+
+LBL 01
+; Upper bound: skip pixel if row > 16
+16
+RCL 07               ; stack: Y=16, X=row
+X>Y?                 ; is row > 16 ?  (TRUE → skip next)
+GTO 03               ; FALSE: row <= 16, draw pixel
+GTO 02               ; TRUE:  row > 16, skip pixel
+
+LBL 03               ; 1 <= row <= 16 — draw the pixel
+RCL 07               ; row goes to Y after next push
+RCL 06               ; col in X-register; row now in Y
+PIXEL                ; set pixel at (row, col)
+
+LBL 02               ; skip-pixel and fall-through target
+
+; Advance column; loop while new col <= 131
+1
+STO+ 06
+RCL 06               ; X = new col
+131                  ; Y = new_col, X = 131
+X<Y?                 ; 131 < new_col ?  (new_col > 131 → TRUE → stop)
+GTO 00               ; FALSE: still in range, loop back
+                     ; TRUE:  fall through to RTN
+
+RTN
+
+; ============================================================
+; USER FUNCTION — edit this to define f(x)
+; Input:  X-register = x value
+; Output: X-register = f(x)
+; ============================================================
+LBL "F"
+; Default: f(x) = sin(x)
+SIN
+RTN
